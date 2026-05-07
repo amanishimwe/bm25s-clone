@@ -1,15 +1,12 @@
 from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 from functools import partial
-
 import os
 import logging
 from pathlib import Path
 import json
 from typing import Any, Tuple, Dict, Iterable, List, NamedTuple, Union
-
 import numpy as np
-
 from .utils import json_functions as json_functions
 
 try:
@@ -44,7 +41,6 @@ else:
     except ImportError:
         tqdm = _faketqdm
 
-
 from . import utils, stopwords, scoring, tokenization
 from . import selection as selection_np
 from .version import __version__
@@ -59,10 +55,14 @@ from .scoring import (
     _np_csc_python,
     _np_csc_jit_ready,
 )
+from .langchain_wrapper import (
+    BM25LangChainRetriever,
+    DPRLangChainRetriever,
+    HybridLangChainRetriever,
+)
 
 logger = logging.getLogger("bm25s")
 logger.setLevel(logging.DEBUG)
-
 
 class Results(NamedTuple):
     """
