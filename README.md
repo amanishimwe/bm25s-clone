@@ -23,6 +23,31 @@ BM25 (Best Matching 25) is a probabilistic relevance ranking function used to es
 - 🎯 **Configurable**: Tunable parameters (k1, b values)
 - 📖 **Well Documented**: Comprehensive documentation and examples
 
+## How the codebase works
+
+This repository implements three retrieval modes:
+
+- `BM25`: sparse lexical retrieval using the BM25 ranking function.
+- `DPR`: dense retrieval using precomputed query/document embeddings and cosine similarity.
+- `Hybrid`: score fusion of BM25 and DPR results to combine lexical and semantic relevance.
+
+The main package entrypoint is `bm25s/__init__.py`. It exposes the core classes and utilities, including:
+
+- `BM25`: builds a sparse CSC-style index and retrieves top-k documents for tokenized queries.
+- `DPR`: indexes dense embeddings and retrieves documents using cosine similarity.
+- `Hybrid`: combines BM25 and DPR scores with configurable weights.
+- `Results`: a named tuple used for retrieval outputs.
+
+Supporting modules in `bm25s/` include:
+
+- `scoring.py`: BM25 scoring, IDF/TFC computation, and sparse matrix construction.
+- `tokenization.py`: simple tokenization helpers and tokenized object conversion.
+- `selection.py`: top-k selection utilities used during retrieval.
+- `utils/`: JSON helpers and corpus support.
+- `langchain_wrapper.py`: lightweight wrappers that make BM25, DPR, and Hybrid compatible with LangChain retriever APIs.
+
+This repo is designed to be run locally from the workspace root, so use `source .venv/bin/activate` and import from the package path directly.
+
 ## Installation
 
 Install BM25s using pip:
