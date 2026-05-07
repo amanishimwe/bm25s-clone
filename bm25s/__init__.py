@@ -1394,3 +1394,570 @@ class BM25:
             cols=dummy_cols,
             shape=shape,
         )
+
+
+class DPR:
+    """
+    Dense Passage Retriever (DPR) for semantic search using dense embeddings.
+    
+    This class implements dense retrieval using pre-computed embeddings or
+    embedding functions. It uses cosine similarity to find the most relevant
+    documents for a given query.
+    """
+    
+    def __init__(
+        self,
+        corpus_embeddings: np.ndarray = None,
+        corpus: List[Any] = None,
+        embedding_fn=None,
+        dtype="float32",
+        int_dtype="int32",
+    ):
+        """
+        Initialize DPR retriever.
+        
+        Parameters
+        ----------
+        corpus_embeddings : np.ndarray, optional
+            Pre-computed embeddings for the corpus documents. Shape: (num_docs, embedding_dim)
+        
+        corpus : List[Any], optional
+            The corpus documents. Can be strings, dicts, or other objects.
+        
+        embedding_fn : callable, optional
+            Function to compute embeddings for queries. Should take a list of strings/texts
+            and return an np.ndarray of shape (num_queries, embedding_dim)
+        
+        dtype : str
+            Data type for embeddings and scores.
+        
+        int_dtype : str
+            Data type for indices.
+        """
+        self.corpus_embeddings = corpus_embeddings
+        self.corpus = corpus
+        self.embedding_fn = embedding_fn
+        self.dtype = dtype
+        self.int_dtype = int_dtype
+        self._original_version = __version__
+    
+    def index(self, corpus_embeddings: np.ndarray, corpus: List[Any] = None):
+        """
+        Index the corpus with pre-computed embeddings.
+        
+        Parameters
+        ----------
+        corpus_embeddings : np.ndarray
+            Embeddings for corpus documents. Shape: (num_docs, embedding_dim)
+        
+        corpus : List[Any], optional
+            The corpus documents.
+        """
+        if not isinstance(corpus_embeddings, np.ndarray):
+            raise ValueError("corpus_embeddings must be a numpy array")
+        
+        self.corpus_embeddings = corpus_embeddings.astype(self.dtype)
+        self.corpus = corpus
+        
+        # Normalize embeddings for cosine similarity
+        norms = np.linalg.norm(self.corpus_embeddings, axis=1, keepdims=True)
+        self.corpus_embeddings_normalized = self.corpus_embeddings / (norms + 1e-10)
+    
+    def _retrieve_from_embeddings(
+        self,
+        query_embeddings: np.ndarray,
+        k: int = 10,
+        sorted: bool = True,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Retrieve top-k documents given query embeddings.
+        
+        Parameters
+        ----------
+        query_embeddings : np.ndarray
+            Query embeddings. Shape: (num_queries, embedding_dim)
+        
+        k : int
+            Number of documents to retrieve.
+        
+        sorted : bool
+            Whether to sort results by score.
+        
+        Returns
+        -------
+        Tuple[np.ndarray, np.ndarray]
+            Tuple of (scores, indices)
+        """
+        # Normalize query embeddings
+        query_norms = np.linalg.norm(query_embeddings, axis=1, keepdims=True)
+        query_embeddings_normalized = query_embeddings / (query_norms + 1e-10)
+        
+        # Compute cosine similarity
+        scores = np.dot(query_embeddings_normalized, self.corpus_embeddings_normalized.T)
+        
+        # Get top-k
+        if sorted:
+            indices = np.argsort(-scores, axis=1)[:, :k]
+            scores = np.take_along_axis(scores, indices, axis=1)
+        else:
+            indices = np.argsort(-scores, axis=1)[:, :k]
+            scores = np.take_along_axis(scores, indices, axis=1)
+        
+        return scores, indices
+    
+    def retrieve(
+        self,
+        queries: Union[List[str], np.ndarray],
+        query_embeddings: np.ndarray = None,
+        corpus: List[Any] = None,
+        k: int = 10,
+        sorted: bool = True,
+        return_as: str = "tuple",
+        show_progress: bool = True,
+        leave_progress: bool = False,
+    ) -> Union[Results, np.ndarray]:
+        """
+        Retrieve top-k documents for queries using dense similarity.
+        
+        Parameters
+        ----------
+        queries : Union[List[str], np.ndarray]
+            Queries (as strings or pre-computed embeddings)
+        
+        query_embeddings : np.ndarray, optional
+            Pre-computed query embeddings. If provided, queries are ignored.
+        
+        corpus : List[Any], optional
+            Corpus documents. If not provided, uses the indexed corpus.
+        
+        k : int
+            Number of documents to retrieve per query.
+        
+        sorted : bool
+            Whether to sort results by score.
+        
+        return_as : str
+            "tuple" returns Results namedtuple, "documents" returns only docs.
+        
+        show_progress : bool
+            Whether to show progress bar.
+        
+        leave_progress : bool
+            Whether to leave progress bar after completion.
+        
+        Returns
+        -------
+        Union[Results, np.ndarray]
+            Retrieved documents and scores (or just documents if return_as="documents")
+        """
+        num_docs = len(self.corpus_embeddings) if self.corpus_embeddings is not None else 0
+        if k > num_docs:
+            raise ValueError(
+                f"k of {k} is larger than the number of available documents ({num_docs})"
+            )
+        
+        # Get query embeddings
+        if query_embeddings is None:
+            if self.embedding_fn is None:
+                raise ValueError(
+                    "Must provide either query_embeddings or embedding_fn during init"
+                )
+            query_embeddings = self.embedding_fn(queries)
+        
+        query_embeddings = np.asarray(query_embeddings, dtype=self.dtype)
+        
+        # Retrieve
+        scores, indices = self._retrieve_from_embeddings(
+            query_embeddings, k=k, sorted=sorted
+        )
+        
+        corpus = corpus if corpus is not None else self.corpus
+        
+        if corpus is None:
+            retrieved_docs = indices
+        else:
+            if isinstance(corpus, np.ndarray) and corpus.ndim == 1:
+                retrieved_docs = corpus[indices]
+            else:
+                retrieved_docs = np.array([[corpus[i] for i in idx] for idx in indices])
+        
+        if return_as == "tuple":
+            return Results(documents=retrieved_docs, scores=scores)
+        elif return_as == "documents":
+            return retrieved_docs
+        else:
+            raise ValueError("`return_as` must be either 'tuple' or 'documents'")
+    
+    def save(
+        self,
+        save_dir: str,
+        corpus: List[Any] = None,
+        embeddings_name: str = "embeddings.npy",
+        corpus_name: str = "corpus.jsonl",
+    ):
+        """Save DPR index and corpus."""
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save embeddings
+        np.save(save_dir / embeddings_name, self.corpus_embeddings)
+        
+        # Save corpus
+        corpus = corpus if corpus is not None else self.corpus
+        if corpus is not None:
+            with open(save_dir / corpus_name, "wt", encoding="utf-8") as f:
+                for i, doc in enumerate(corpus):
+                    if isinstance(doc, str):
+                        doc = {"id": i, "text": doc}
+                    try:
+                        doc_str = json_functions.dumps(doc, ensure_ascii=False)
+                        f.write(doc_str + "\n")
+                    except Exception as e:
+                        logging.warning(f"Error saving document at index {i}: {e}")
+    
+    @classmethod
+    def load(
+        cls,
+        save_dir: str,
+        embeddings_name: str = "embeddings.npy",
+        corpus_name: str = "corpus.jsonl",
+        load_corpus: bool = False,
+        embedding_fn=None,
+        dtype: str = "float32",
+        int_dtype: str = "int32",
+    ) -> "DPR":
+        """Load DPR index from saved directory."""
+        save_dir = Path(save_dir)
+        
+        # Load embeddings
+        embeddings = np.load(save_dir / embeddings_name)
+        
+        # Load corpus if requested
+        corpus = None
+        if load_corpus:
+            corpus_file = save_dir / corpus_name
+            if corpus_file.exists():
+                corpus = []
+                with open(corpus_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        doc = json_functions.loads(line)
+                        corpus.append(doc)
+        
+        dpr_obj = cls(
+            corpus_embeddings=embeddings,
+            corpus=corpus,
+            embedding_fn=embedding_fn,
+            dtype=dtype,
+            int_dtype=int_dtype,
+        )
+        dpr_obj.corpus_embeddings_normalized = (
+            dpr_obj.corpus_embeddings 
+            / (np.linalg.norm(dpr_obj.corpus_embeddings, axis=1, keepdims=True) + 1e-10)
+        )
+        return dpr_obj
+
+
+class Hybrid:
+    """
+    Hybrid retriever combining both sparse (BM25) and dense (DPR) retrieval.
+    
+    Hybrid search combines the strengths of both lexical matching (BM25) and
+    semantic similarity (DPR) by computing scores from both methods and combining
+    them using a weighted average.
+    """
+    
+    def __init__(
+        self,
+        bm25: BM25 = None,
+        dpr: DPR = None,
+        bm25_weight: float = 0.5,
+        dpr_weight: float = 0.5,
+        dtype: str = "float32",
+        int_dtype: str = "int32",
+    ):
+        """
+        Initialize Hybrid retriever.
+        
+        Parameters
+        ----------
+        bm25 : BM25, optional
+            Indexed BM25 retriever
+        
+        dpr : DPR, optional
+            Indexed DPR retriever
+        
+        bm25_weight : float
+            Weight for BM25 scores (default 0.5)
+        
+        dpr_weight : float
+            Weight for DPR scores (default 0.5)
+        
+        dtype : str
+            Data type for scores
+        
+        int_dtype : str
+            Data type for indices
+        """
+        self.bm25 = bm25
+        self.dpr = dpr
+        self.bm25_weight = bm25_weight
+        self.dpr_weight = dpr_weight
+        self.dtype = dtype
+        self.int_dtype = int_dtype
+        self._original_version = __version__
+        
+        # Normalize weights
+        total_weight = bm25_weight + dpr_weight
+        if total_weight > 0:
+            self.bm25_weight = bm25_weight / total_weight
+            self.dpr_weight = dpr_weight / total_weight
+    
+    def index(
+        self,
+        corpus,
+        corpus_embeddings: np.ndarray = None,
+        bm25_params: dict = None,
+        embedding_fn=None,
+    ):
+        """
+        Index corpus for both BM25 and DPR.
+        
+        Parameters
+        ----------
+        corpus : Union[Iterable, Tuple, tokenization.Tokenized]
+            Corpus for BM25 indexing (tokenized documents)
+        
+        corpus_embeddings : np.ndarray, optional
+            Pre-computed embeddings for DPR
+        
+        bm25_params : dict, optional
+            Parameters for BM25 initialization
+        
+        embedding_fn : callable, optional
+            Function to compute query embeddings for DPR
+        """
+        if bm25_params is None:
+            bm25_params = {}
+        
+        # Index BM25
+        self.bm25 = BM25(**bm25_params)
+        self.bm25.index(corpus)
+        
+        # Index DPR
+        if corpus_embeddings is not None:
+            self.dpr = DPR(
+                corpus_embeddings=corpus_embeddings,
+                corpus=None,
+                embedding_fn=embedding_fn,
+                dtype=self.dtype,
+                int_dtype=self.int_dtype,
+            )
+            self.dpr.index(corpus_embeddings)
+    
+    def _normalize_scores(
+        self,
+        scores: np.ndarray,
+        axis: int = 1,
+    ) -> np.ndarray:
+        """Normalize scores to [0, 1] range."""
+        score_min = scores.min(axis=axis, keepdims=True)
+        score_max = scores.max(axis=axis, keepdims=True)
+        score_range = score_max - score_min
+        score_range[score_range == 0] = 1.0  # Avoid division by zero
+        return (scores - score_min) / score_range
+    
+    def retrieve(
+        self,
+        query_tokens: Union[List[List[str]], tokenization.Tokenized] = None,
+        query_embeddings: np.ndarray = None,
+        queries: Union[List[str], np.ndarray] = None,
+        corpus: List[Any] = None,
+        k: int = 10,
+        sorted: bool = True,
+        return_as: str = "tuple",
+        show_progress: bool = True,
+        leave_progress: bool = False,
+    ) -> Union[Results, np.ndarray]:
+        """
+        Retrieve top-k documents using hybrid BM25 + DPR retrieval.
+        
+        Parameters
+        ----------
+        query_tokens : Union[List[List[str]], tokenization.Tokenized], optional
+            Tokenized queries for BM25 retrieval
+        
+        query_embeddings : np.ndarray, optional
+            Pre-computed query embeddings for DPR
+        
+        queries : Union[List[str], np.ndarray], optional
+            Raw queries (used to compute embeddings if query_embeddings not provided)
+        
+        corpus : List[Any], optional
+            Corpus documents. If not provided, uses indexed corpus.
+        
+        k : int
+            Number of documents to retrieve per query.
+        
+        sorted : bool
+            Whether to sort results by score.
+        
+        return_as : str
+            "tuple" returns Results namedtuple, "documents" returns only docs.
+        
+        show_progress : bool
+            Whether to show progress bar.
+        
+        leave_progress : bool
+            Whether to leave progress bar after completion.
+        
+        Returns
+        -------
+        Union[Results, np.ndarray]
+            Retrieved documents and scores (or just documents if return_as="documents")
+        """
+        if self.bm25 is None or self.dpr is None:
+            raise ValueError("Both BM25 and DPR must be indexed before retrieval")
+        
+        # Get BM25 results
+        bm25_results = self.bm25.retrieve(
+            query_tokens=query_tokens,
+            corpus=corpus,
+            k=k,
+            sorted=sorted,
+            return_as="tuple",
+            show_progress=show_progress,
+            leave_progress=leave_progress,
+        )
+        
+        # Get DPR results
+        dpr_results = self.dpr.retrieve(
+            queries=queries,
+            query_embeddings=query_embeddings,
+            corpus=corpus,
+            k=k,
+            sorted=sorted,
+            return_as="tuple",
+            show_progress=False,
+            leave_progress=leave_progress,
+        )
+        
+        # Normalize scores
+        bm25_scores_norm = self._normalize_scores(bm25_results.scores)
+        dpr_scores_norm = self._normalize_scores(dpr_results.scores)
+        
+        # Combine scores: create a matrix with all document scores
+        num_queries = bm25_results.scores.shape[0]
+        num_docs = self.bm25.scores["num_docs"]
+        
+        combined_scores = np.zeros((num_queries, num_docs), dtype=self.dtype)
+        
+        # Add BM25 scores
+        for i in range(num_queries):
+            for j, doc_idx in enumerate(bm25_results.documents[i]):
+                combined_scores[i, doc_idx] += self.bm25_weight * bm25_scores_norm[i, j]
+        
+        # Add DPR scores
+        for i in range(num_queries):
+            for j, doc_idx in enumerate(dpr_results.documents[i]):
+                combined_scores[i, doc_idx] += self.dpr_weight * dpr_scores_norm[i, j]
+        
+        # Get top-k from combined scores
+        topk_indices = np.argsort(-combined_scores, axis=1)[:, :k]
+        topk_scores = np.take_along_axis(combined_scores, topk_indices, axis=1)
+        
+        corpus_obj = corpus if corpus is not None else self.bm25.corpus
+        
+        if corpus_obj is None:
+            retrieved_docs = topk_indices
+        else:
+            if isinstance(corpus_obj, np.ndarray) and corpus_obj.ndim == 1:
+                retrieved_docs = corpus_obj[topk_indices]
+            else:
+                retrieved_docs = np.array([[corpus_obj[i] for i in idx] for idx in topk_indices])
+        
+        if return_as == "tuple":
+            return Results(documents=retrieved_docs, scores=topk_scores)
+        elif return_as == "documents":
+            return retrieved_docs
+        else:
+            raise ValueError("`return_as` must be either 'tuple' or 'documents'")
+    
+    def save(
+        self,
+        save_dir: str,
+        corpus: List[Any] = None,
+        bm25_dir: str = "bm25_index",
+        dpr_dir: str = "dpr_index",
+        params_name: str = "params.json",
+    ):
+        """Save hybrid index (BM25 + DPR)."""
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save BM25 index
+        if self.bm25 is not None:
+            self.bm25.save(save_dir / bm25_dir, corpus=corpus)
+        
+        # Save DPR index
+        if self.dpr is not None:
+            self.dpr.save(save_dir / dpr_dir, corpus=corpus)
+        
+        # Save parameters
+        params = {
+            "bm25_weight": float(self.bm25_weight),
+            "dpr_weight": float(self.dpr_weight),
+            "dtype": self.dtype,
+            "int_dtype": self.int_dtype,
+            "version": __version__,
+        }
+        with open(save_dir / params_name, "w") as f:
+            json.dump(params, f, indent=4)
+    
+    @classmethod
+    def load(
+        cls,
+        save_dir: str,
+        bm25_dir: str = "bm25_index",
+        dpr_dir: str = "dpr_index",
+        params_name: str = "params.json",
+        load_corpus: bool = False,
+        embedding_fn=None,
+    ) -> "Hybrid":
+        """Load hybrid index from saved directory."""
+        save_dir = Path(save_dir)
+        
+        # Load parameters
+        params_path = save_dir / params_name
+        with open(params_path, "r") as f:
+            params = json.load(f)
+        
+        bm25_weight = params.get("bm25_weight", 0.5)
+        dpr_weight = params.get("dpr_weight", 0.5)
+        dtype = params.get("dtype", "float32")
+        int_dtype = params.get("int_dtype", "int32")
+        
+        # Load BM25
+        bm25 = BM25.load(
+            save_dir / bm25_dir,
+            load_corpus=load_corpus,
+        )
+        
+        # Load DPR
+        dpr = DPR.load(
+            save_dir / dpr_dir,
+            load_corpus=load_corpus,
+            embedding_fn=embedding_fn,
+            dtype=dtype,
+            int_dtype=int_dtype,
+        )
+        
+        hybrid_obj = cls(
+            bm25=bm25,
+            dpr=dpr,
+            bm25_weight=bm25_weight,
+            dpr_weight=dpr_weight,
+            dtype=dtype,
+            int_dtype=int_dtype,
+        )
+        
+        return hybrid_obj
