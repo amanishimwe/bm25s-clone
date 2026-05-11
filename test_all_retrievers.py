@@ -1,7 +1,6 @@
 """Test script for BM25, DPR, and Hybrid retrieval."""
-
 import numpy as np
-from bm25s import BM25, DPR, Hybrid, Results
+from ams26 import BM25, DPR, Hybrid, Results
 
 print("\n" + "="*60)
 print("Testing BM25, DPR, and Hybrid Retrieval Methods")

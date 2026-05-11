@@ -1,1 +1,0 @@
-"""Numba-accelerated components (stub)."""

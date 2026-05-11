@@ -1,7 +1,7 @@
 """Test script for BM25 scoring with different methods and context."""
 
 import numpy as np
-from bm25s import BM25, Results
+from ams26 import BM25, Results
 
 print("\n" + "="*60)
 print("Testing BM25 Scoring Context - Different Methods")

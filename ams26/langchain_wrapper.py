@@ -31,10 +31,12 @@ Basic usage examples:
 
 import json
 from typing import Any, Callable, Iterable, List, Optional, Sequence
+from xml.dom.minidom import Document
+from typing import TYPE_CHECKING
 
 try:
-    from langchain.schema import Document
-    from langchain.retrievers.base import BaseRetriever
+    from langchain_core.documents import Document
+    from langchain_core.retrievers import BaseRetriever
 except ImportError as exc:
     raise ImportError(
         "langchain is required to use bm25s.langchain_wrapper. "
@@ -42,7 +44,9 @@ except ImportError as exc:
     ) from exc
 
 from . import tokenization
-from . import BM25, DPR, Hybrid
+
+if TYPE_CHECKING:
+    from . import BM25, DPR, Hybrid
 
 
 def _make_document(doc: Any) -> Document:
@@ -83,11 +87,11 @@ class BM25LangChainRetriever(BaseRetriever):
 
     def __init__(
         self,
-        bm25: BM25,
         corpus: Sequence[Any],
         k: int = 10,
         tokenizer: Optional[Callable[[str], List[str]]] = None,
     ):
+        from . import BM25
         self.bm25 = bm25
         self.corpus = corpus
         self.k = k
@@ -116,11 +120,12 @@ class DPRLangChainRetriever(BaseRetriever):
 
     def __init__(
         self,
-        dpr: DPR,
+       
         corpus: Sequence[Any],
         k: int = 10,
         embedding_fn: Optional[Callable[[Sequence[str]], Any]] = None,
     ):
+        from . import DPR
         self.dpr = dpr
         self.corpus = corpus
         self.k = k
@@ -155,12 +160,12 @@ class HybridLangChainRetriever(BaseRetriever):
 
     def __init__(
         self,
-        hybrid: Hybrid,
         corpus: Sequence[Any],
         k: int = 10,
         tokenizer: Optional[Callable[[str], List[str]]] = None,
         embedding_fn: Optional[Callable[[Sequence[str]], Any]] = None,
     ):
+        from . import HYBRID
         self.hybrid = hybrid
         self.corpus = corpus
         self.k = k
