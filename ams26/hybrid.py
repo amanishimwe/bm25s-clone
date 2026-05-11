@@ -65,12 +65,14 @@ class Hybrid:
         if self.bm25 is None or self.dpr is None:
             raise ValueError("Both BM25 and DPR must be indexed before retrieval.")
 
+        # Always retrieve indices for score fusion. Passing a corpus here can
+        # return raw documents instead of integer ids, which breaks indexing.
         bm25_results = self.bm25.retrieve(
-            query_tokens=query_tokens, corpus=corpus, k=k, sorted=sorted,
+            query_tokens=query_tokens, corpus=None, k=k, sorted=sorted,
             return_as="tuple", show_progress=show_progress, leave_progress=leave_progress,
         )
         dpr_results = self.dpr.retrieve(
-            queries=queries, query_embeddings=query_embeddings, corpus=corpus,
+            queries=queries, query_embeddings=query_embeddings, corpus=None,
             k=k, sorted=sorted, return_as="tuple", show_progress=False, leave_progress=leave_progress,
         )
 

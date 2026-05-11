@@ -459,7 +459,7 @@ class BM25:
             raise ImportError("Numba not installed.")
         if os.environ.get("NUMBA_DISABLE_JIT"):
             return
-        from .scoring import _compute_relevance_from_scores_jit_ready
+        from ._base import _compute_relevance_from_scores_jit_ready
         self._compute_relevance_from_scores = njit(_compute_relevance_from_scores_jit_ready)
 
     def activate_numba_csc(self):

@@ -43,7 +43,7 @@ except ImportError as exc:
         "Install it with `pip install langchain`."
     ) from exc
 
-from . import tokenization
+from ._base import tokenization
 
 if TYPE_CHECKING:
     from . import BM25, DPR, Hybrid
