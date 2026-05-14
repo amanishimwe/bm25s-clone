@@ -6,7 +6,6 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-
 import numpy as np
 
 
@@ -14,52 +13,55 @@ __version__ = "0.1.0"
 json_functions = json
 
 
-# --- Numba ---
-try:
-    from numba import njit
-    from .numba import selection as selection_jit
-    NUMBA_AVAILABLE = True
-except ImportError:
-    njit = lambda x: x  # type: ignore
-    selection_jit = None
-    NUMBA_AVAILABLE = False
+# # --- Numba ---
+# try:
+#     from numba import njit
+#     from .numba import selection as selection_jit
+#     NUMBA_AVAILABLE = True
+# except ImportError:
+#     njit = lambda x: x  # type: ignore
+#     selection_jit = None
+#     NUMBA_AVAILABLE = False
 
-# --- Scipy ---
-try:
-    import scipy.sparse as sp
-    SCIPY_AVAILABLE = True
-except ImportError:
-    sp = None
-    SCIPY_AVAILABLE = False
-
-# --- Numba retrieve utils ---
-try:
-    from .numba.retrieve_utils import _retrieve_numba_functional
-except ImportError:
-    _retrieve_numba_functional = None
+# # --- Scipy ---
 
 
-# --- tqdm ---
-def _faketqdm(*args, **kwargs):
-    return args[0] if len(args) > 0 else None
+
+# try:
+#     import scipy.sparse as sp
+#     SCIPY_AVAILABLE = True
+# except ImportError:
+#     sp = None
+#     SCIPY_AVAILABLE = False
+
+# # --- Numba retrieve utils ---
+# try:
+#     from .numba.retrieve_utils import _retrieve_numba_functional
+# except ImportError:
+#     _retrieve_numba_functional = None
 
 
-if os.environ.get("DISABLE_TQDM", False):
-    tqdm = _faketqdm
-else:
-    try:
-        from tqdm.auto import tqdm
-    except ImportError:
-        tqdm = _faketqdm
+# # --- tqdm ---
+# def _faketqdm(*args, **kwargs):
+#     return args[0] if len(args) > 0 else None
 
 
-# --- tokenization ---
+# if os.environ.get("DISABLE_TQDM", False):
+#     tqdm = _faketqdm
+# else:
+#     try:
+#         from tqdm.auto import tqdm
+#     except ImportError:
+#         tqdm = _faketqdm
+
+
+# --- holds the tokenized text with respective token ids and vocabulary per document ---
 @dataclass
 class Tokenized:
     ids: list
     vocab: dict
 
-
+# converts the text to a list of tokens, by first converting the text to lowercase and then splitting the text into a list of tokens
 def tokenize(text: str):
     return text.lower().split()
 
@@ -76,12 +78,17 @@ tokenization = SimpleNamespace(
 )
 
 
-# --- selection ---
+# --- selection of top k documents based on the scores ---
 def _topk(scores: np.ndarray, k: int = 10, sorted: bool = False, backend: str = "auto"):
+
+    # if k is less than or equal to 0, return an empty array
     if k <= 0:
         return np.array([], dtype=scores.dtype), np.array([], dtype=np.int32)
+    # if k is greater than the number of scores, set k to the number of scores
     k = min(k, len(scores))
+    # partition the scores into k groups, and get the indices of the top k scores
     idx = np.argpartition(-scores, k - 1)[:k]
+    # get the top k scores
     top_scores = scores[idx]
     if sorted:
         order = np.argsort(-top_scores)
@@ -89,13 +96,10 @@ def _topk(scores: np.ndarray, k: int = 10, sorted: bool = False, backend: str = 
         top_scores = top_scores[order]
     return top_scores, idx
 
-
 selection_np = SimpleNamespace(topk=_topk)
-
 
 # --- stopwords ---
 stopwords = SimpleNamespace(DEFAULT_STOPWORDS=set())
-
 
 # --- utils.corpus ---
 class JsonlCorpus:
